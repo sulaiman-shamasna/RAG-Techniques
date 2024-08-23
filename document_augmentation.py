@@ -43,3 +43,155 @@ FRAGMENT_OVERLAP_TOKENS = 16
 QUESTION_GENERATION = QuestionGeneration.DOCUMENT_LEVEL
 #how many questions will be generated for specific document or fragment
 QUESTIONS_PER_DOCUMENT = 40
+
+
+class QuestionList(BaseModel):
+    question_list: List[str] = Field(..., title="List of questions generated for the document or fragment")
+
+
+class OpenAIEmbeddingsWrapper(OpenAIEmbeddings):
+    """
+    A wrapper class for OpenAI embeddings, providing a similar interface to the original OllamaEmbeddings.
+    """
+    
+    def __call__(self, query: str) -> List[float]:
+        """
+        Allows the instance to be used as a callable to generate an embedding for a query.
+
+        Args:
+            query (str): The query string to be embedded.
+
+        Returns:
+            List[float]: The embedding for the query as a list of floats.
+        """
+        return self.embed_query(query)
+
+def clean_and_filter_questions(questions: List[str]) -> List[str]:
+    """
+    Cleans and filters a list of questions.
+
+    Args:
+        questions (List[str]): A list of questions to be cleaned and filtered.
+
+    Returns:
+        List[str]: A list of cleaned and filtered questions that end with a question mark.
+    """
+    cleaned_questions = []
+    for question in questions:
+        cleaned_question = re.sub(r'^\d+\.\s*', '', question.strip())
+        if cleaned_question.endswith('?'):
+            cleaned_questions.append(cleaned_question)
+    return cleaned_questions
+
+def generate_questions(text: str) -> List[str]:
+    """
+    Generates a list of questions based on the provided text using OpenAI.
+
+    Args:
+        text (str): The context data from which questions are generated.
+
+    Returns:
+        List[str]: A list of unique, filtered questions.
+    """
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    prompt = PromptTemplate(
+        input_variables=["context", "num_questions"],
+        template="Using the context data: {context}\n\nGenerate a list of at least {num_questions} "
+                 "possible questions that can be asked about this context. Ensure the questions are "
+                 "directly answerable within the context and do not include any answers or headers. "
+                 "Separate the questions with a new line character."
+    )
+    chain = prompt | llm.with_structured_output(QuestionList)
+    input_data = {"context": text, "num_questions": QUESTIONS_PER_DOCUMENT}
+    result = chain.invoke(input_data)
+    
+    # Extract the list of questions from the QuestionList object
+    questions = result.question_list
+    
+    filtered_questions = clean_and_filter_questions(questions)
+    return list(set(filtered_questions))
+
+def generate_answer(content: str, question: str) -> str:
+    """
+    Generates an answer to a given question based on the provided context using OpenAI.
+
+    Args:
+        content (str): The context data used to generate the answer.
+        question (str): The question for which the answer is generated.
+
+    Returns:
+        str: The precise answer to the question based on the provided context.
+    """
+    llm = ChatOpenAI(model="gpt-4o-mini",temperature=0)
+    prompt = PromptTemplate(
+        input_variables=["context", "question"],
+        template="Using the context data: {context}\n\nProvide a brief and precise answer to the question: {question}"
+    )
+    chain =  prompt | llm
+    input_data = {"context": content, "question": question}
+    return chain.invoke(input_data)
+
+def split_document(document: str, chunk_size: int, chunk_overlap: int) -> List[str]:
+    """
+    Splits a document into smaller chunks of text.
+
+    Args:
+        document (str): The text of the document to be split.
+        chunk_size (int): The size of each chunk in terms of the number of tokens.
+        chunk_overlap (int): The number of overlapping tokens between consecutive chunks.
+
+    Returns:
+        List[str]: A list of text chunks, where each chunk is a string of the document content.
+    """
+    tokens = re.findall(r'\b\w+\b', document)
+    chunks = []
+    for i in range(0, len(tokens), chunk_size - chunk_overlap):
+        chunk_tokens = tokens[i:i + chunk_size]
+        chunks.append(chunk_tokens)
+        if i + chunk_size >= len(tokens):
+            break
+    return [" ".join(chunk) for chunk in chunks]
+
+def print_document(comment: str, document: Any) -> None:
+    """
+    Prints a comment followed by the content of a document.
+
+    Args:
+        comment (str): The comment or description to print before the document details.
+        document (Any): The document whose content is to be printed.
+
+    Returns:
+        None
+    """
+    print(f'{comment} (type: {document.metadata["type"]}, index: {document.metadata["index"]}): {document.page_content}')
+
+
+# Initialize OpenAIEmbeddings
+embeddings = OpenAIEmbeddingsWrapper()
+
+# Example document
+example_text = "This is an example document. It contains information about various topics."
+
+# Generate questions
+questions = generate_questions(example_text)
+print("Generated Questions:")
+for q in questions:
+    print(f"- {q}")
+
+# Generate an answer
+sample_question = questions[0] if questions else "What is this document about?"
+answer = generate_answer(example_text, sample_question)
+print(f"\nQuestion: {sample_question}")
+print(f"Answer: {answer}")
+
+# Split document
+chunks = split_document(example_text, chunk_size=10, chunk_overlap=2)
+print("\nDocument Chunks:")
+for i, chunk in enumerate(chunks):
+    print(f"Chunk {i + 1}: {chunk}")
+
+# Example of using OpenAIEmbeddings
+doc_embedding = embeddings.embed_documents([example_text])
+query_embedding = embeddings.embed_query("What is the main topic?")
+print("\nDocument Embedding (first 5 elements):", doc_embedding[0][:5])
+print("Query Embedding (first 5 elements):", query_embedding[:5])
