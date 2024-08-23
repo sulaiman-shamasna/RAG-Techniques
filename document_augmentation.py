@@ -252,3 +252,40 @@ def process_documents(content: str, embedding_model: OpenAIEmbeddings):
 
     print("Creating retriever returning the most relevant FAISS document")
     return vectorstore.as_retriever(search_kwargs={"k": 1})
+
+
+# Load sample PDF document to string variable
+path = "data/Understanding_Climate_Change.pdf"
+content = read_pdf_to_string(path)
+
+# Instantiate OpenAI Embeddings class that will be used by FAISS
+embedding_model = OpenAIEmbeddings()
+
+# Process documents and create retriever
+document_query_retriever = process_documents(content, embedding_model)
+
+# Example usage of the retriever
+query = "What is climate change?"
+retrieved_docs = document_query_retriever.get_relevant_documents(query)
+print(f"\nQuery: {query}")
+print(f"Retrieved document: {retrieved_docs[0].page_content}")
+
+"""
+Find the most relevant FAISS document in the store. In most cases,
+this will be an augmented question rather than the original text document.
+"""
+query = "How do freshwater ecosystems change due to alterations in climatic factors?"
+print (f'Question:{os.linesep}{query}{os.linesep}')
+retrieved_documents = document_query_retriever.invoke(query)
+
+for doc in retrieved_documents:
+    print_document("Relevant fragment retrieved", doc)
+
+"""
+Find the parent text document and use it as context for the generative
+model to generate an answer to the question.
+"""
+context = doc.metadata['text']
+print (f'{os.linesep}Context:{os.linesep}{context}')
+answer = generate_answer(context, query)
+print(f'{os.linesep}Answer:{os.linesep}{answer}')
