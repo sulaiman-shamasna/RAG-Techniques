@@ -195,3 +195,60 @@ doc_embedding = embeddings.embed_documents([example_text])
 query_embedding = embeddings.embed_query("What is the main topic?")
 print("\nDocument Embedding (first 5 elements):", doc_embedding[0][:5])
 print("Query Embedding (first 5 elements):", query_embedding[:5])
+
+
+def process_documents(content: str, embedding_model: OpenAIEmbeddings):
+    """
+    Process the document content, split it into fragments, generate questions,
+    create a FAISS vector store, and return a retriever.
+
+    Args:
+        content (str): The content of the document to process.
+        embedding_model (OpenAIEmbeddings): The embedding model to use for vectorization.
+
+    Returns:
+        VectorStoreRetriever: A retriever for the most relevant FAISS document.
+    """
+    # Split the whole text content into text documents
+    text_documents = split_document(content, DOCUMENT_MAX_TOKENS, DOCUMENT_OVERLAP_TOKENS)
+    print(f'Text content split into: {len(text_documents)} documents')
+
+    documents = []
+    counter = 0
+    for i, text_document in enumerate(text_documents):
+        text_fragments = split_document(text_document, FRAGMENT_MAX_TOKENS, FRAGMENT_OVERLAP_TOKENS)
+        print(f'Text document {i} - split into: {len(text_fragments)} fragments')
+        
+        for j, text_fragment in enumerate(text_fragments):
+            documents.append(Document(
+                page_content=text_fragment,
+                metadata={"type": "ORIGINAL", "index": counter, "text": text_document}
+            ))
+            counter += 1
+            
+            if QUESTION_GENERATION == QuestionGeneration.FRAGMENT_LEVEL:
+                questions = generate_questions(text_fragment)
+                documents.extend([
+                    Document(page_content=question, metadata={"type": "AUGMENTED", "index": counter + idx, "text": text_document})
+                    for idx, question in enumerate(questions)
+                ])
+                counter += len(questions)
+                print(f'Text document {i} Text fragment {j} - generated: {len(questions)} questions')
+        
+        if QUESTION_GENERATION == QuestionGeneration.DOCUMENT_LEVEL:
+            questions = generate_questions(text_document)
+            documents.extend([
+                Document(page_content=question, metadata={"type": "AUGMENTED", "index": counter + idx, "text": text_document})
+                for idx, question in enumerate(questions)
+            ])
+            counter += len(questions)
+            print(f'Text document {i} - generated: {len(questions)} questions')
+
+    for document in documents:
+        print_document("Dataset", document)
+
+    print(f'Creating store, calculating embeddings for {len(documents)} FAISS documents')
+    vectorstore = FAISS.from_documents(documents, embedding_model)
+
+    print("Creating retriever returning the most relevant FAISS document")
+    return vectorstore.as_retriever(search_kwargs={"k": 1})
