@@ -136,3 +136,10 @@ def decompose_query(original_query: str):
     response = subquery_decomposer_chain.invoke(original_query).content
     sub_queries = [q.strip() for q in response.split('\n') if q.strip() and not q.strip().startswith('Sub-queries:')]
     return sub_queries
+
+# example query over the understanding climate change dataset
+original_query = "What are the impacts of climate change on the environment?"
+sub_queries = decompose_query(original_query)
+print("\nSub-queries:")
+for i, sub_query in enumerate(sub_queries, 1):
+    print(sub_query)
