@@ -87,3 +87,9 @@ def generate_step_back_query(original_query):
     """
     response = step_back_chain.invoke(original_query)
     return response.content
+
+# example query over the understanding climate change dataset
+original_query = "What are the impacts of climate change on the environment?"
+step_back_query = generate_step_back_query(original_query)
+print("Original query:", original_query)
+print("\nStep-back query:", step_back_query)
