@@ -44,3 +44,46 @@ def rewrite_query(original_query):
     """
     response = query_rewriter.invoke(original_query)
     return response.content
+
+
+# example query over the understanding climate change dataset
+original_query = "What are the impacts of climate change on the environment?"
+rewritten_query = rewrite_query(original_query)
+print("Original query:", original_query)
+print("\nRewritten query:", rewritten_query)
+
+"""
+2 - Step-back Prompting: Generating broader queries for better context retrieval.
+"""
+
+step_back_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
+
+
+# Create a prompt template for step-back prompting
+step_back_template = """You are an AI assistant tasked with generating broader, more general queries to improve context retrieval in a RAG system.
+Given the original query, generate a step-back query that is more general and can help retrieve relevant background information.
+
+Original query: {original_query}
+
+Step-back query:"""
+
+step_back_prompt = PromptTemplate(
+    input_variables=["original_query"],
+    template=step_back_template
+)
+
+# Create an LLMChain for step-back prompting
+step_back_chain = step_back_prompt | step_back_llm
+
+def generate_step_back_query(original_query):
+    """
+    Generate a step-back query to retrieve broader context.
+    
+    Args:
+    original_query (str): The original user query
+    
+    Returns:
+    str: The step-back query
+    """
+    response = step_back_chain.invoke(original_query)
+    return response.content
