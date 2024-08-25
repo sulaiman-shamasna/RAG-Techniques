@@ -217,3 +217,15 @@ class AdaptiveRetriever:
         category = self.classifier.classify(query)
         strategy = self.strategies[category]
         return strategy.retrieve(query)
+    
+class PydanticAdaptiveRetriever(BaseRetriever):
+    adaptive_retriever: AdaptiveRetriever = Field(exclude=True)
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    def get_relevant_documents(self, query: str) -> List[Document]:
+        return self.adaptive_retriever.get_relevant_documents(query)
+
+    async def aget_relevant_documents(self, query: str) -> List[Document]:
+        return self.get_relevant_documents(query)
