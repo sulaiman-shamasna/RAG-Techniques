@@ -41,7 +41,19 @@ class QueryClassifier:
     def classify(self, query):
         print("clasiffying query")
         return self.chain.invoke(query).category
-    
+
+class BaseRetrievalStrategy:
+    def __init__(self, texts):
+        self.embeddings = OpenAIEmbeddings()
+        text_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=0)
+        self.documents = text_splitter.create_documents(texts)
+        self.db = FAISS.from_documents(self.documents, self.embeddings)
+        self.llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
+
+
+    def retrieve(self, query, k=4):
+        return self.db.similarity_search(query, k=k)
+        
 class categories_options(BaseModel):
         category: str = Field(description="The category of the query, the options are: Factual, Analytical, Opinion, or Contextual", example="Factual")
 
@@ -255,3 +267,8 @@ class AdaptiveRAG:
         docs = self.retriever.get_relevant_documents(query)
         input_data = {"context": "\n".join([doc.page_content for doc in docs]), "question": query}
         return self.llm_chain.invoke(input_data)
+    
+texts = [
+    "The Earth is the third planet from the Sun and the only astronomical object known to harbor life."
+    ]
+rag_system = AdaptiveRAG(texts)
