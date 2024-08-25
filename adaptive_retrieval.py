@@ -135,3 +135,34 @@ class AnalyticalRetrievalStrategy(BaseRetrievalStrategy):
         print(f'selected diverse and relevant documents')
         
         return [all_docs[i] for i in selected_indices_result if i < len(all_docs)]
+    
+class OpinionRetrievalStrategy(BaseRetrievalStrategy):
+    def retrieve(self, query, k=3):
+        print("retrieving opinion")
+        # Use LLM to identify potential viewpoints
+        viewpoints_prompt = PromptTemplate(
+            input_variables=["query", "k"],
+            template="Identify {k} distinct viewpoints or perspectives on the topic: {query}"
+        )
+        viewpoints_chain = viewpoints_prompt | self.llm
+        input_data = {"query": query, "k": k}
+        viewpoints = viewpoints_chain.invoke(input_data).content.split('\n')
+        print(f'viewpoints: {viewpoints}')
+
+        all_docs = []
+        for viewpoint in viewpoints:
+            all_docs.extend(self.db.similarity_search(f"{query} {viewpoint}", k=2))
+
+        # Use LLM to classify and select diverse opinions
+        opinion_prompt = PromptTemplate(
+            input_variables=["query", "docs", "k"],
+            template="Classify these documents into distinct opinions on '{query}' and select the {k} most representative and diverse viewpoints:\nDocuments: {docs}\nSelected indices:"
+        )
+        opinion_chain = opinion_prompt | self.llm.with_structured_output(SelectedIndices)
+        
+        docs_text = "\n".join([f"{i}: {doc.page_content[:100]}..." for i, doc in enumerate(all_docs)])
+        input_data = {"query": query, "docs": docs_text, "k": k}
+        selected_indices = opinion_chain.invoke(input_data).indices
+        print(f'selected diverse and relevant documents')
+        
+        return [all_docs[int(i)] for i in selected_indices.split() if i.isdigit() and int(i) < len(all_docs)]
