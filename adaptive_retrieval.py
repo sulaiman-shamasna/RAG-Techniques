@@ -272,3 +272,15 @@ texts = [
     "The Earth is the third planet from the Sun and the only astronomical object known to harbor life."
     ]
 rag_system = AdaptiveRAG(texts)
+
+factual_result = rag_system.answer("What is the distance between the Earth and the Sun?").content
+print(f"Answer: {factual_result}")
+
+analytical_result = rag_system.answer("How does the Earth's distance from the Sun affect its climate?").content
+print(f"Answer: {analytical_result}")
+
+opinion_result = rag_system.answer("What are the different theories about the origin of life on Earth?").content
+print(f"Answer: {opinion_result}")
+
+contextual_result = rag_system.answer("How does the Earth's position in the Solar System influence its habitability?").content
+print(f"Answer: {contextual_result}")
