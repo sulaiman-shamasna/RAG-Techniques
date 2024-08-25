@@ -202,3 +202,18 @@ class ContextualRetrievalStrategy(BaseRetrievalStrategy):
         ranked_docs.sort(key=lambda x: x[1], reverse=True)
 
         return [doc for doc, _ in ranked_docs[:k]]
+    
+class AdaptiveRetriever:
+    def __init__(self, texts: List[str]):
+        self.classifier = QueryClassifier()
+        self.strategies = {
+            "Factual": FactualRetrievalStrategy(texts),
+            "Analytical": AnalyticalRetrievalStrategy(texts),
+            "Opinion": OpinionRetrievalStrategy(texts),
+            "Contextual": ContextualRetrievalStrategy(texts)
+        }
+
+    def get_relevant_documents(self, query: str) -> List[Document]:
+        category = self.classifier.classify(query)
+        strategy = self.strategies[category]
+        return strategy.retrieve(query)
