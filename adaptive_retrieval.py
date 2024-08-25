@@ -95,3 +95,43 @@ class FactualRetrievalStrategy(BaseRetrievalStrategy):
         # Sort by relevance score and return top k
         ranked_docs.sort(key=lambda x: x[1], reverse=True)
         return [doc for doc, _ in ranked_docs[:k]]
+    
+class SelectedIndices(BaseModel):
+    indices: List[int] = Field(description="Indices of selected documents", example=[0, 1, 2, 3])
+
+class SubQueries(BaseModel):
+    sub_queries: List[str] = Field(description="List of sub-queries for comprehensive analysis", example=["What is the population of New York?", "What is the GDP of New York?"])
+
+class AnalyticalRetrievalStrategy(BaseRetrievalStrategy):
+    def retrieve(self, query, k=4):
+        print("retrieving analytical")
+        # Use LLM to generate sub-queries for comprehensive analysis
+        sub_queries_prompt = PromptTemplate(
+            input_variables=["query", "k"],
+            template="Generate {k} sub-questions for: {query}"
+        )
+
+        llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
+        sub_queries_chain = sub_queries_prompt | llm.with_structured_output(SubQueries)
+
+        input_data = {"query": query, "k": k}
+        sub_queries = sub_queries_chain.invoke(input_data).sub_queries
+        print(f'sub queries for comprehensive analysis: {sub_queries}')
+
+        all_docs = []
+        for sub_query in sub_queries:
+            all_docs.extend(self.db.similarity_search(sub_query, k=2))
+
+        # Use LLM to ensure diversity and relevance
+        diversity_prompt = PromptTemplate(
+            input_variables=["query", "docs", "k"],
+            template="""Select the most diverse and relevant set of {k} documents for the query: '{query}'\nDocuments: {docs}\n
+            Return only the indices of selected documents as a list of integers."""
+        )
+        diversity_chain = diversity_prompt | self.llm.with_structured_output(SelectedIndices)
+        docs_text = "\n".join([f"{i}: {doc.page_content[:50]}..." for i, doc in enumerate(all_docs)])
+        input_data = {"query": query, "docs": docs_text, "k": k}
+        selected_indices_result = diversity_chain.invoke(input_data).indices
+        print(f'selected diverse and relevant documents')
+        
+        return [all_docs[i] for i in selected_indices_result if i < len(all_docs)]
