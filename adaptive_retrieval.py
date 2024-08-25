@@ -166,3 +166,39 @@ class OpinionRetrievalStrategy(BaseRetrievalStrategy):
         print(f'selected diverse and relevant documents')
         
         return [all_docs[int(i)] for i in selected_indices.split() if i.isdigit() and int(i) < len(all_docs)]
+    
+class ContextualRetrievalStrategy(BaseRetrievalStrategy):
+    def retrieve(self, query, k=4, user_context=None):
+        print("retrieving contextual")
+        # Use LLM to incorporate user context into the query
+        context_prompt = PromptTemplate(
+            input_variables=["query", "context"],
+            template="Given the user context: {context}\nReformulate the query to best address the user's needs: {query}"
+        )
+        context_chain = context_prompt | self.llm
+        input_data = {"query": query, "context": user_context or "No specific context provided"}
+        contextualized_query = context_chain.invoke(input_data).content
+        print(f'contextualized query: {contextualized_query}')
+
+        # Retrieve documents using the contextualized query
+        docs = self.db.similarity_search(contextualized_query, k=k*2)
+
+        # Use LLM to rank the relevance of retrieved documents considering the user context
+        ranking_prompt = PromptTemplate(
+            input_variables=["query", "context", "doc"],
+            template="Given the query: '{query}' and user context: '{context}', rate the relevance of this document on a scale of 1-10:\nDocument: {doc}\nRelevance score:"
+        )
+        ranking_chain = ranking_prompt | self.llm.with_structured_output(relevant_score)
+        print("ranking docs")
+
+        ranked_docs = []
+        for doc in docs:
+            input_data = {"query": contextualized_query, "context": user_context or "No specific context provided", "doc": doc.page_content}
+            score = float(ranking_chain.invoke(input_data).score)
+            ranked_docs.append((doc, score))
+
+
+        # Sort by relevance score and return top k
+        ranked_docs.sort(key=lambda x: x[1], reverse=True)
+
+        return [doc for doc, _ in ranked_docs[:k]]
