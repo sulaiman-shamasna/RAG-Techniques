@@ -124,3 +124,17 @@ async def encode_pdf_hierarchical(path, chunk_size=1000, chunk_overlap=200, is_s
     )
 
     return summary_vectorstore, detailed_vectorstore
+
+"""
+Encode the PDF book to both document-level summaries and detailed chunks if the vector stores do not exist
+"""
+
+if os.path.exists("../vector_stores/summary_store") and os.path.exists("../vector_stores/detailed_store"):
+   embeddings = OpenAIEmbeddings()
+   summary_store = FAISS.load_local("../vector_stores/summary_store", embeddings, allow_dangerous_deserialization=True)
+   detailed_store = FAISS.load_local("../vector_stores/detailed_store", embeddings, allow_dangerous_deserialization=True)
+
+else:
+    summary_store, detailed_store = await encode_pdf_hierarchical(path)
+    summary_store.save_local("../vector_stores/summary_store")
+    detailed_store.save_local("../vector_stores/detailed_store")
