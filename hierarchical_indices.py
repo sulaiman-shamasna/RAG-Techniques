@@ -174,3 +174,15 @@ def retrieve_hierarchical(query, summary_vectorstore, detailed_vectorstore, k_su
         relevant_chunks.extend(page_chunks)
     
     return relevant_chunks
+
+"""
+Demonstrate on a use case
+"""
+query = "What is the greenhouse effect?"
+results = retrieve_hierarchical(query, summary_store, detailed_store)
+
+# Print results
+for chunk in results:
+    print(f"Page: {chunk.metadata['page']}")
+    print(f"Content: {chunk.page_content}...")  # Print first 100 characters
+    print("---")
