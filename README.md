@@ -10,6 +10,7 @@ This project aims at presenting common use-cases of RAG systems supported by cod
 7. **[Hierarchical Indices](https://github.com/sulaiman-shamasna/RAG-Techniques/blob/main/hierarchical_indices.py)**: A retrieval approach that organizes documents or data in a multi-level structure, allowing for more efficient and targeted searches by narrowing down relevant information through progressively refined layers of indexing.
 8. **[Query Transformation](https://github.com/sulaiman-shamasna/RAG-Techniques/blob/main/query_transformation.py)**: A technique that rewrites or reformulates the input query to improve retrieval performance, optimizing the search for relevant documents by making the query more effective for the underlying retrieval system.
 9. **[Self-RAG](https://github.com/sulaiman-shamasna/RAG-Techniques/blob/main/self_rag.ipynb)**: A method where the system autonomously retrieves and processes relevant documents during generation without external prompts, enabling more seamless integration of retrieval into the response creation process.
+10. **[Semantic Chunking](https://github.com/sulaiman-shamasna/RAG-Techniques/blob/main/semantic_chunking.ipynb)**: A technique that breaks down large documents or data into smaller, semantically coherent chunks, allowing for more precise retrieval and enabling the model to focus on the most relevant sections during generation.
 
 
 
