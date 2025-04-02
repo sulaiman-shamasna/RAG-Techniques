@@ -107,3 +107,17 @@ prompt = ChatPromptTemplate.from_messages(
         ("human", "Retrieved documents: \n\n <docs>{documents}</docs> \n\n User question: <question>{question}</question>"),
     ]
 )
+
+# LLM
+llm = ChatOpenAI(model_name="gpt-4", temperature=0)
+
+# Post-processing
+def format_docs(docs):
+    return "\n".join(f"<doc{i+1}>:\nTitle:{doc.metadata['title']}\nSource:{doc.metadata['source']}\nContent:{doc.page_content}\n</doc{i+1}>\n" for i, doc in enumerate(docs))
+
+# Chain
+rag_chain = prompt | llm | StrOutputParser()
+
+# Run
+generation = rag_chain.invoke({"documents": format_docs(docs_to_use), "question": question})
+print(generation)
