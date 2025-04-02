@@ -247,6 +247,17 @@ if __name__ == "__main__":
 
 
 """
+Example of Execution Command:
+
+python reliable_rag.py --question "your question here" --llm-model gpt-4 --temperature 0.7
+
+Or Simply:
+
+python reliable_rag.py
+"""
+
+
+"""
 Script Execution Example:
 -------------------------
 
