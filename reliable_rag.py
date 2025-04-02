@@ -243,3 +243,29 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+"""
+Script Execution Example:
+-------------------------
+
+Output:
+
+Enter your question (or press Enter to use the default question): 
+Title: Agentic Design Patterns Part 5, Multi-Agent Collaboration
+
+Source: https://www.deeplearning.ai/the-batch/agentic-design-patterns-part-5-multi-agent-collaboration/?ref=dl-staging-website.ghost.io
+
+Content: scalable and highly secure code. By decomposing the overall task into subtasks, we can optimize the subtasks better.Perhaps most important, the multi-agent design pattern gives us, as developers, a framework for breaking down complex tasks into subtasks. When writing code to run on a single CPU, we often break our program up into different processes or threads. This is a useful abstraction that lets us decompose a task, like implementing a web browser, into subtasks that are easier to code. I find thinking through multi-agent roles to be a useful abstraction as well.In many companies, managers routinely decide what roles to hire, and then how to split complex projects — like writing a large piece of software or preparing a research report — into smaller tasks to assign to employees with different specialties. Using multiple agents is analogous. Each agent implements its own workflow, has its own memory (itself a rapidly evolving area in agentic technology: how can an agent remember enough of its past interactions to perform better on upcoming ones?), and may ask other agents for help. Agents can also engage in Planning and Tool Use. This results in a cacophony of LLM calls and message passing between agents that can result in very complex workflows. While managing people is hard, it's a sufficiently familiar idea that it gives us a mental framework for how to "hire" and assign tasks to our AI agents. Fortunately, the damage from mismanaging an AI agent is much lower than that from mismanaging humans! Emerging frameworks like AutoGen, Crew AI, and LangGraph, provide rich ways to build multi-agent solutions to problems. If you're interested in playing with a fun multi-agent system, also check out ChatDev, an open source implementation of a set of agents that run a virtual software company. I encourage you to check out their GitHub repo and perhaps clone the repo and run the system yourself. While it may not always produce what you want, you might be amazed at how well it does. Like the design pattern of Planning, I find the output quality of multi-agent collaboration hard to predict, especially when allowing agents to interact freely and providing them with multiple tools. The more mature patterns of Reflection and Tool Use are more reliable. I hope you enjoy playing with these agentic design patterns and that they produce amazing results for you! If you're interested in learning more, I ... 
+
+
+Answer: 
+
+Agentic design patterns are strategies for building AI agents. They include:
+
+1. Reflection: The AI agent examines its own work to find ways to improve it.
+2. Tool Use: The AI agent is given tools such as web search, code execution, or other functions to help it gather information, take action, or process data.
+3. Planning: The AI agent comes up with and executes a multistep plan to achieve a goal.
+4. Multi-agent Collaboration: More than one AI agent work together, splitting up tasks and discussing and debating ideas, to come up with better solutions than a single agent would.
+"""
