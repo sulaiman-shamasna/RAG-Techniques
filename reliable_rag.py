@@ -56,3 +56,54 @@ docs = retriever.invoke(question)
 print(f"Title: {docs[0].metadata['title']}\n\nSource: {docs[0].metadata['source']}\n\nContent: {docs[0].page_content}\n")
 print(10 * "=")
 
+from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
+from langchain_openai import ChatOpenAI
+
+# Data model
+class GradeDocuments(BaseModel):
+    """Binary score for relevance check on retrieved documents."""
+    binary_score: str = Field(
+        description="Documents are relevant to the question, 'yes' or 'no'"
+    )
+
+# LLM with function call
+llm = ChatOpenAI(model_name="gpt-4", temperature=0)
+structured_llm_grader = llm.with_structured_output(GradeDocuments)
+
+# Prompt
+system = """You are a grader assessing relevance of a retrieved document to a user question. 
+If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant.
+It does not need to be a stringent test. The goal is to filter out erroneous retrievals.
+Give a binary score 'yes' or 'no' to indicate whether the document is relevant to the question."""
+
+grade_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", system),
+        ("human", "Retrieved document: \n\n {document} \n\n User question: {question}"),
+    ]
+)
+
+retrieval_grader = grade_prompt | structured_llm_grader
+
+# Filter out non-relevant docs
+docs_to_use = []
+for doc in docs:
+    res = retrieval_grader.invoke({"question": question, "document": doc.page_content})
+    # display_score = res.get("binary_score")
+    display_score = res.binary_score
+    if display_score == "yes":
+        docs_to_use.append(doc)
+
+from langchain_core.output_parsers import StrOutputParser
+
+# Answer Generation Prompt
+system = """You are an assistant for question-answering tasks. Answer the question based upon your knowledge. 
+Use three-to-five sentences maximum and keep the answer concise."""
+
+prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", system),
+        ("human", "Retrieved documents: \n\n <docs>{documents}</docs> \n\n User question: <question>{question}</question>"),
+    ]
+)
