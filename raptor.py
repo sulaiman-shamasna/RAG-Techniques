@@ -257,3 +257,42 @@ def raptor_query(query: str, retriever: ContextualCompressionRetriever, max_leve
     }
     
     return result
+
+def print_query_details(result: Dict[str, Any]):
+    """Print detailed information about the query process, including tree level metadata."""
+    print(f"Query: {result['query']}")
+    print(f"\nNumber of documents retrieved: {result['num_docs_retrieved']}")
+    print(f"\nRetrieved Documents:")
+    for doc in result['retrieved_documents']:
+        print(f"  Document {doc['index']}:")
+        print(f"    Content: {doc['content'][:100]}...")  # Show first 100 characters
+        print(f"    Similarity Score: {doc['similarity_score']}")
+        print(f"    Tree Level: {doc['metadata'].get('level', 'Unknown')}")
+        print(f"    Origin: {doc['metadata'].get('origin', 'Unknown')}")
+        if 'child_docs' in doc['metadata']:
+            print(f"    Number of Child Documents: {len(doc['metadata']['child_docs'])}")
+        print()
+    
+    print(f"\nContext used for answer generation:")
+    print(result['context_used'])
+    
+    print(f"\nGenerated Answer:")
+    print(result['answer'])
+    
+    print(f"\nModel Used: {result['model_used']}")
+
+path = "data/Understanding_Climate_Change.pdf"
+
+loader = PyPDFLoader(path)
+documents = loader.load()
+texts = [doc.page_content for doc in documents]
+
+
+tree_results = build_raptor_tree(texts)
+vectorstore = build_vectorstore(tree_results)
+retriever = create_retriever(vectorstore)
+
+max_level = 3  # Adjust based on your tree depth
+query = "What is the greenhouse effect?"
+result = raptor_query(query, retriever, max_level)
+print_query_details(result)
