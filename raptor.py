@@ -194,3 +194,26 @@ def create_retriever(vectorstore: FAISS) -> ContextualCompressionRetriever:
         base_compressor=extractor,
         base_retriever=base_retriever
     )
+
+def hierarchical_retrieval(query: str, retriever: ContextualCompressionRetriever, max_level: int) -> List[Document]:
+    """Perform hierarchical retrieval starting from the highest level, handling potential None values."""
+    all_retrieved_docs = []
+    
+    for level in range(max_level, -1, -1):
+        # Retrieve documents from the current level
+        level_docs = retriever.get_relevant_documents(
+            query,
+            filter=lambda meta: meta['level'] == level
+        )
+        all_retrieved_docs.extend(level_docs)
+        
+        # If we've found documents, retrieve their children from the next level down
+        if level_docs and level > 0:
+            child_ids = [doc.metadata.get('child_ids', []) for doc in level_docs]
+            child_ids = [item for sublist in child_ids for item in sublist if item is not None]  # Flatten and filter None
+            
+            if child_ids:  # Only modify query if there are valid child IDs
+                child_query = f" AND id:({' OR '.join(str(id) for id in child_ids)})"
+                query += child_query
+    
+    return all_retrieved_docs
