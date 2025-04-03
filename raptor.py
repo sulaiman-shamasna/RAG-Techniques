@@ -189,3 +189,8 @@ def create_retriever(vectorstore: FAISS) -> ContextualCompressionRetriever:
     )
     
     extractor = LLMChainExtractor.from_llm(llm, prompt=prompt)
+    
+    return ContextualCompressionRetriever(
+        base_compressor=extractor,
+        base_retriever=base_retriever
+    )
