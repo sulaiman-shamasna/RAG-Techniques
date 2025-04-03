@@ -45,3 +45,32 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
     logging.info(f"Embedding {len(texts)} texts")
     return embeddings.embed_documents([extract_text(text) for text in texts])
 
+def perform_clustering(embeddings: np.ndarray, n_clusters: int = 10) -> np.ndarray:
+    """Perform clustering on embeddings using Gaussian Mixture Model."""
+    logging.info(f"Performing clustering with {n_clusters} clusters")
+    gm = GaussianMixture(n_components=n_clusters, random_state=42)
+    return gm.fit_predict(embeddings)
+
+def summarize_texts(texts: List[str]) -> str:
+    """Summarize a list of texts using OpenAI."""
+    logging.info(f"Summarizing {len(texts)} texts")
+    prompt = ChatPromptTemplate.from_template(
+        "Summarize the following text concisely:\n\n{text}"
+    )
+    chain = prompt | llm
+    input_data = {"text": texts}
+    return chain.invoke(input_data)
+
+def visualize_clusters(embeddings: np.ndarray, labels: np.ndarray, level: int):
+    """Visualize clusters using PCA."""
+    from sklearn.decomposition import PCA
+    pca = PCA(n_components=2)
+    reduced_embeddings = pca.fit_transform(embeddings)
+    
+    plt.figure(figsize=(10, 8))
+    scatter = plt.scatter(reduced_embeddings[:, 0], reduced_embeddings[:, 1], c=labels, cmap='viridis')
+    plt.colorbar(scatter)
+    plt.title(f'Cluster Visualization - Level {level}')
+    plt.xlabel('First Principal Component')
+    plt.ylabel('Second Principal Component')
+    plt.show()
