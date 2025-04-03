@@ -126,3 +126,22 @@ def build_raptor_tree(texts: List[str], max_levels: int = 3) -> Dict[int, pd.Dat
             break
     
     return results
+
+def build_vectorstore(tree_results: Dict[int, pd.DataFrame]) -> FAISS:
+    """Build a FAISS vectorstore from all texts in the RAPTOR tree."""
+    all_texts = []
+    all_embeddings = []
+    all_metadatas = []
+    
+    for level, df in tree_results.items():
+        all_texts.extend([str(text) for text in df['text'].tolist()])
+        all_embeddings.extend([embedding.tolist() if isinstance(embedding, np.ndarray) else embedding for embedding in df['embedding'].tolist()])
+        all_metadatas.extend(df['metadata'].tolist())
+    
+    logging.info(f"Building vectorstore with {len(all_texts)} texts")
+    
+    # Create Document objects manually to ensure correct types
+    documents = [Document(page_content=str(text), metadata=metadata) 
+                 for text, metadata in zip(all_texts, all_metadatas)]
+    
+    return FAISS.from_documents(documents, embeddings)
