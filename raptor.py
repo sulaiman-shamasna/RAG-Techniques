@@ -217,3 +217,43 @@ def hierarchical_retrieval(query: str, retriever: ContextualCompressionRetriever
                 query += child_query
     
     return all_retrieved_docs
+
+def raptor_query(query: str, retriever: ContextualCompressionRetriever, max_level: int) -> Dict[str, Any]:
+    """Process a query using the RAPTOR system with hierarchical retrieval."""
+    logging.info(f"Processing query: {query}")
+    
+    relevant_docs = hierarchical_retrieval(query, retriever, max_level)
+    
+    doc_details = []
+    for i, doc in enumerate(relevant_docs, 1):
+        doc_details.append({
+            "index": i,
+            "content": doc.page_content,
+            "metadata": doc.metadata,
+            "level": doc.metadata.get('level', 'Unknown'),
+            "similarity_score": doc.metadata.get('score', 'N/A')
+        })
+    
+    context = "\n\n".join([doc.page_content for doc in relevant_docs])
+    
+    prompt = ChatPromptTemplate.from_template(
+        "Given the following context, please answer the question:\n\n"
+        "Context: {context}\n\n"
+        "Question: {question}\n\n"
+        "Answer:"
+    )
+    chain = LLMChain(llm=llm, prompt=prompt)
+    answer = chain.run(context=context, question=query)
+    
+    logging.info("Query processing completed")
+    
+    result = {
+        "query": query,
+        "retrieved_documents": doc_details,
+        "num_docs_retrieved": len(relevant_docs),
+        "context_used": context,
+        "answer": answer,
+        "model_used": llm.model_name,
+    }
+    
+    return result
