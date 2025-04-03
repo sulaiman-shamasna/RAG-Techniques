@@ -74,3 +74,55 @@ def visualize_clusters(embeddings: np.ndarray, labels: np.ndarray, level: int):
     plt.xlabel('First Principal Component')
     plt.ylabel('Second Principal Component')
     plt.show()
+
+def build_raptor_tree(texts: List[str], max_levels: int = 3) -> Dict[int, pd.DataFrame]:
+    """Build the RAPTOR tree structure with level metadata and parent-child relationships."""
+    results = {}
+    current_texts = [extract_text(text) for text in texts]
+    current_metadata = [{"level": 0, "origin": "original", "parent_id": None} for _ in texts]
+    
+    for level in range(1, max_levels + 1):
+        logging.info(f"Processing level {level}")
+        
+        embeddings = embed_texts(current_texts)
+        n_clusters = min(10, len(current_texts) // 2)
+        cluster_labels = perform_clustering(np.array(embeddings), n_clusters)
+        
+        df = pd.DataFrame({
+            'text': current_texts,
+            'embedding': embeddings,
+            'cluster': cluster_labels,
+            'metadata': current_metadata
+        })
+        
+        results[level-1] = df
+        
+        summaries = []
+        new_metadata = []
+        for cluster in df['cluster'].unique():
+            cluster_docs = df[df['cluster'] == cluster]
+            cluster_texts = cluster_docs['text'].tolist()
+            cluster_metadata = cluster_docs['metadata'].tolist()
+            summary = summarize_texts(cluster_texts)
+            summaries.append(summary)
+            new_metadata.append({
+                "level": level,
+                "origin": f"summary_of_cluster_{cluster}_level_{level-1}",
+                "child_ids": [meta.get('id') for meta in cluster_metadata],
+                "id": f"summary_{level}_{cluster}"
+            })
+        
+        current_texts = summaries
+        current_metadata = new_metadata
+        
+        if len(current_texts) <= 1:
+            results[level] = pd.DataFrame({
+                'text': current_texts,
+                'embedding': embed_texts(current_texts),
+                'cluster': [0],
+                'metadata': current_metadata
+            })
+            logging.info(f"Stopping at level {level} as we have only one summary")
+            break
+    
+    return results
