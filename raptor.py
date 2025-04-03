@@ -145,3 +145,47 @@ def build_vectorstore(tree_results: Dict[int, pd.DataFrame]) -> FAISS:
                  for text, metadata in zip(all_texts, all_metadatas)]
     
     return FAISS.from_documents(documents, embeddings)
+
+def tree_traversal_retrieval(query: str, vectorstore: FAISS, k: int = 3) -> List[Document]:
+    """Perform tree traversal retrieval."""
+    query_embedding = embeddings.embed_query(query)
+    
+    def retrieve_level(level: int, parent_ids: List[str] = None) -> List[Document]:
+        if parent_ids:
+            docs = vectorstore.similarity_search_by_vector_with_relevance_scores(
+                query_embedding,
+                k=k,
+                filter=lambda meta: meta['level'] == level and meta['id'] in parent_ids
+            )
+        else:
+            docs = vectorstore.similarity_search_by_vector_with_relevance_scores(
+                query_embedding,
+                k=k,
+                filter=lambda meta: meta['level'] == level
+            )
+        
+        if not docs or level == 0:
+            return docs
+        
+        child_ids = [doc.metadata.get('child_ids', []) for doc, _ in docs]
+        child_ids = [item for sublist in child_ids for item in sublist]  # Flatten the list
+        
+        child_docs = retrieve_level(level - 1, child_ids)
+        return docs + child_docs
+    
+    max_level = max(doc.metadata['level'] for doc in vectorstore.docstore.values())
+    return retrieve_level(max_level)
+
+def create_retriever(vectorstore: FAISS) -> ContextualCompressionRetriever:
+    """Create a retriever with contextual compression."""
+    logging.info("Creating contextual compression retriever")
+    base_retriever = vectorstore.as_retriever()
+    
+    prompt = ChatPromptTemplate.from_template(
+        "Given the following context and question, extract only the relevant information for answering the question:\n\n"
+        "Context: {context}\n"
+        "Question: {question}\n\n"
+        "Relevant Information:"
+    )
+    
+    extractor = LLMChainExtractor.from_llm(llm, prompt=prompt)
