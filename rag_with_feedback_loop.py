@@ -74,7 +74,7 @@ def adjust_relevance_scores(query: str, docs: List[Any], feedback_data: List[Dic
         """
     )
     llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=4000)
-    relevance_chain = relevance_prompt | llm.with_structured_output(Response)
+    relevance_chain = relevance_prompt | llm.with_structured_output(Response, method="function_calling")
 
     for doc in docs:
         relevant_feedback = []
@@ -97,10 +97,10 @@ def adjust_relevance_scores(query: str, docs: List[Any], feedback_data: List[Dic
     return sorted(docs, key=lambda x: x.metadata.get('relevance_score', 1), reverse=True)
 
 
-def fine_tune_index(feedback_data: List[Dict[str, Any]], texts: List[str]) -> Any:
+def fine_tune_index(feedback_data: List[Dict[str, Any]], texts: str) -> Any:
     good_responses = [f for f in feedback_data if f['relevance'] >= 4 and f['quality'] >= 4]
     additional_texts = " ".join([f['query'] + " " + f['response'] for f in good_responses])
-    all_texts = texts + [additional_texts]
+    all_texts = texts + additional_texts
     new_vectorstore = encode_from_string(all_texts)
     return new_vectorstore
 
@@ -120,11 +120,11 @@ class RetrievalAugmentedGeneration:
             raise
 
     def run(self, query: str, relevance: int, quality: int):
-        response = self.qa_chain.invoke(query)["result"]
+        response = self.qa_chain.invoke({"query": query})["result"]
         feedback = get_user_feedback(query, response, relevance, quality)
         store_feedback(feedback)
 
-        docs = self.retriever.get_relevant_documents(query)
+        docs = self.retriever.invoke(query)
         adjusted_docs = adjust_relevance_scores(query, docs, load_feedback_data())
         self.retriever.search_kwargs['k'] = len(adjusted_docs)
         self.retriever.search_kwargs['docs'] = adjusted_docs
@@ -153,7 +153,7 @@ if __name__ == "__main__":
         print(f"Response: {result}")
 
         # Fine-tune the vectorstore periodically
-        new_vectorstore = fine_tune_index(load_feedback_data(), [rag.content])
+        new_vectorstore = fine_tune_index(load_feedback_data(), rag.content)
         rag.retriever = new_vectorstore.as_retriever()
     except Exception as e:
         print(f"Error running RAG system: {e}")
