@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import ChatOpenAI
 from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), '..')))  # Add the parent directory to the path
 from helper_functions import *
@@ -18,7 +18,10 @@ from evaluation.evaluate_rag import *
 load_dotenv()
 
 # Set the OpenAI API key environment variable
-os.environ["OPENAI_API_KEY"] = os.getenv('OPENAI_API_KEY')
+api_key = os.getenv('OPENAI_API_KEY')
+if not api_key:
+    raise ValueError("OPENAI_API_KEY not found in environment variables")
+os.environ["OPENAI_API_KEY"] = api_key
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
@@ -39,6 +42,7 @@ def get_user_feedback(query, response, relevance, quality, comments=""):
 
 
 def store_feedback(feedback):
+    os.makedirs("data", exist_ok=True)
     with open("data/feedback_data.json", "a") as f:
         json.dump(feedback, f)
         f.write("\n")
@@ -69,7 +73,7 @@ def adjust_relevance_scores(query: str, docs: List[Any], feedback_data: List[Dic
         Is this feedback relevant? Respond with only 'Yes' or 'No'.
         """
     )
-    llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
+    llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=4000)
     relevance_chain = relevance_prompt | llm.with_structured_output(Response)
 
     for doc in docs:
@@ -83,20 +87,20 @@ def adjust_relevance_scores(query: str, docs: List[Any], feedback_data: List[Dic
             }
             result = relevance_chain.invoke(input_data).answer
 
-            if result == 'yes':
+            if result.lower() == 'yes':
                 relevant_feedback.append(feedback)
 
         if relevant_feedback:
             avg_relevance = sum(f['relevance'] for f in relevant_feedback) / len(relevant_feedback)
-            doc.metadata['relevance_score'] *= (avg_relevance / 3)
+            doc.metadata['relevance_score'] = doc.metadata.get('relevance_score', 1) * (avg_relevance / 3)
 
-    return sorted(docs, key=lambda x: x.metadata['relevance_score'], reverse=True)
+    return sorted(docs, key=lambda x: x.metadata.get('relevance_score', 1), reverse=True)
 
 
 def fine_tune_index(feedback_data: List[Dict[str, Any]], texts: List[str]) -> Any:
     good_responses = [f for f in feedback_data if f['relevance'] >= 4 and f['quality'] >= 4]
     additional_texts = " ".join([f['query'] + " " + f['response'] for f in good_responses])
-    all_texts = texts + additional_texts
+    all_texts = texts + [additional_texts]
     new_vectorstore = encode_from_string(all_texts)
     return new_vectorstore
 
@@ -106,13 +110,17 @@ class RetrievalAugmentedGeneration:
     def __init__(self, path: str):
         self.path = path
         self.content = read_pdf_to_string(self.path)
-        self.vectorstore = encode_from_string(self.content)
-        self.retriever = self.vectorstore.as_retriever()
-        self.llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
-        self.qa_chain = RetrievalQA.from_chain_type(self.llm, retriever=self.retriever)
+        try:
+            self.vectorstore = encode_from_string(self.content)
+            self.retriever = self.vectorstore.as_retriever()
+            self.llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=4000)
+            self.qa_chain = RetrievalQA.from_chain_type(self.llm, retriever=self.retriever)
+        except Exception as e:
+            print(f"Error initializing RAG system: {e}")
+            raise
 
     def run(self, query: str, relevance: int, quality: int):
-        response = self.qa_chain(query)["result"]
+        response = self.qa_chain.invoke(query)["result"]
         feedback = get_user_feedback(query, response, relevance, quality)
         store_feedback(feedback)
 
@@ -139,10 +147,13 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    rag = RetrievalAugmentedGeneration(args.path)
-    result = rag.run(args.query, args.relevance, args.quality)
-    print(f"Response: {result}")
+    try:
+        rag = RetrievalAugmentedGeneration(args.path)
+        result = rag.run(args.query, args.relevance, args.quality)
+        print(f"Response: {result}")
 
-    # Fine-tune the vectorstore periodically
-    new_vectorstore = fine_tune_index(load_feedback_data(), rag.content)
-    rag.retriever = new_vectorstore.as_retriever()
+        # Fine-tune the vectorstore periodically
+        new_vectorstore = fine_tune_index(load_feedback_data(), [rag.content])
+        rag.retriever = new_vectorstore.as_retriever()
+    except Exception as e:
+        print(f"Error running RAG system: {e}")
