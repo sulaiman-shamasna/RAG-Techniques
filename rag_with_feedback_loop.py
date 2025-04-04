@@ -1,159 +1,304 @@
-import os
-import sys
+import os, sys
 import json
-from typing import List, Dict, Any
+import argparse
+from dataclasses import dataclass, field
+from typing import List, Dict, Any, Optional
+from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.chains import RetrievalQA
 from langchain_core.prompts import PromptTemplate
+from langchain_core.vectorstores import VectorStore
+from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_core.documents import Document
 
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(), '..')))  # Add the parent directory to the path
-from helper_functions import *
-from evaluation.evaluate_rag import *
-
-# Load environment variables from a .env file
+# Load environment variables
 load_dotenv()
 
-# Set the OpenAI API key environment variable
-api_key = os.getenv('OPENAI_API_KEY')
-if not api_key:
-    raise ValueError("OPENAI_API_KEY not found in environment variables")
-os.environ["OPENAI_API_KEY"] = api_key
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+## --------------------------
+## Data Models
+## --------------------------
+
+@dataclass
+class Feedback:
+    query: str
+    response: str
+    relevance: int = field(default=1, metadata={"description": "Score from 1-5"})
+    quality: int = field(default=1, metadata={"description": "Score from 1-5"})
+    comments: str = field(default="")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "query": self.query,
+            "response": self.response,
+            "relevance": self.relevance,
+            "quality": self.quality,
+            "comments": self.comments
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Feedback':
+        return cls(**data)
 
 
-# Define the Response class
-class Response(BaseModel):
+class ResponseModel(BaseModel):
     answer: str = Field(..., title="The answer to the question. The options can be only 'Yes' or 'No'")
 
 
-# Define utility functions
-def get_user_feedback(query, response, relevance, quality, comments=""):
-    return {
-        "query": query,
-        "response": response,
-        "relevance": int(relevance),
-        "quality": int(quality),
-        "comments": comments
-    }
+## --------------------------
+## Core Components
+## --------------------------
 
+class FeedbackManager:
+    """Handles storage and retrieval of feedback data"""
+    
+    def __init__(self, storage_path: str = "data/feedback_data.json"):
+        self.storage_path = Path(storage_path)
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
 
-def store_feedback(feedback):
-    os.makedirs("data", exist_ok=True)
-    with open("data/feedback_data.json", "a") as f:
-        json.dump(feedback, f)
-        f.write("\n")
+    def save_feedback(self, feedback: Feedback) -> None:
+        """Save feedback to persistent storage"""
+        with open(self.storage_path, "a", encoding="utf-8") as f:
+            json.dump(feedback.to_dict(), f)
+            f.write("\n")
 
-
-def load_feedback_data():
-    feedback_data = []
-    try:
-        with open("data/feedback_data.json", "r") as f:
-            for line in f:
-                feedback_data.append(json.loads(line.strip()))
-    except FileNotFoundError:
-        print("No feedback data file found. Starting with empty feedback.")
-    return feedback_data
-
-
-def adjust_relevance_scores(query: str, docs: List[Any], feedback_data: List[Dict[str, Any]]) -> List[Any]:
-    relevance_prompt = PromptTemplate(
-        input_variables=["query", "feedback_query", "doc_content", "feedback_response"],
-        template="""
-        Determine if the following feedback response is relevant to the current query and document content.
-        You are also provided with the Feedback original query that was used to generate the feedback response.
-        Current query: {query}
-        Feedback query: {feedback_query}
-        Document content: {doc_content}
-        Feedback response: {feedback_response}
-
-        Is this feedback relevant? Respond with only 'Yes' or 'No'.
-        """
-    )
-    llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=4000)
-    relevance_chain = relevance_prompt | llm.with_structured_output(Response, method="function_calling")
-
-    for doc in docs:
-        relevant_feedback = []
-        for feedback in feedback_data:
-            input_data = {
-                "query": query,
-                "feedback_query": feedback['query'],
-                "doc_content": doc.page_content[:1000],
-                "feedback_response": feedback['response']
-            }
-            result = relevance_chain.invoke(input_data).answer
-
-            if result.lower() == 'yes':
-                relevant_feedback.append(feedback)
-
-        if relevant_feedback:
-            avg_relevance = sum(f['relevance'] for f in relevant_feedback) / len(relevant_feedback)
-            doc.metadata['relevance_score'] = doc.metadata.get('relevance_score', 1) * (avg_relevance / 3)
-
-    return sorted(docs, key=lambda x: x.metadata.get('relevance_score', 1), reverse=True)
-
-
-def fine_tune_index(feedback_data: List[Dict[str, Any]], texts: str) -> Any:
-    good_responses = [f for f in feedback_data if f['relevance'] >= 4 and f['quality'] >= 4]
-    additional_texts = " ".join([f['query'] + " " + f['response'] for f in good_responses])
-    all_texts = texts + additional_texts
-    new_vectorstore = encode_from_string(all_texts)
-    return new_vectorstore
-
-
-# Define the main RAG class
-class RetrievalAugmentedGeneration:
-    def __init__(self, path: str):
-        self.path = path
-        self.content = read_pdf_to_string(self.path)
+    def load_feedback(self) -> List[Feedback]:
+        """Load all feedback from storage"""
+        feedback_data = []
         try:
-            self.vectorstore = encode_from_string(self.content)
+            with open(self.storage_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    feedback_data.append(Feedback.from_dict(json.loads(line.strip())))
+        except FileNotFoundError:
+            print(f"No feedback data found at {self.storage_path}")
+        return feedback_data
+
+
+class DocumentProcessor:
+    """Handles document loading and processing"""
+    
+    @staticmethod
+    def load_pdf(path: str) -> str:
+        """Load PDF content as text"""
+        loader = PyPDFLoader(path)
+        pages = loader.load()
+        return "\n".join(page.page_content for page in pages)
+
+    @staticmethod
+    def create_vectorstore(text: str) -> VectorStore:
+        """Create a vector store from text"""
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200
+        )
+        chunks = text_splitter.split_text(text)
+        embeddings = OpenAIEmbeddings()
+        return FAISS.from_texts(chunks, embeddings)
+
+
+class RelevanceScorer:
+    """Handles relevance scoring of documents based on feedback"""
+    
+    def __init__(self):
+        self.prompt_template = PromptTemplate(
+            input_variables=["query", "feedback_query", "doc_content", "feedback_response"],
+            template="""
+            Determine if the following feedback response is relevant to the current query and document content.
+            You are also provided with the Feedback original query that was used to generate the feedback response.
+            Current query: {query}
+            Feedback query: {feedback_query}
+            Document content: {doc_content}
+            Feedback response: {feedback_response}
+
+            Is this feedback relevant? Respond with only 'Yes' or 'No'.
+            """
+        )
+        self.llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=4000)
+
+    def adjust_scores(self, query: str, docs: List[Document], feedback_data: List[Feedback]) -> List[Document]:
+        """Adjust document relevance scores based on feedback"""
+        chain = self.prompt_template | self.llm.with_structured_output(
+            ResponseModel, 
+            method="function_calling"
+        )
+
+        for doc in docs:
+            relevant_feedback = [
+                fb for fb in feedback_data 
+                if self._is_relevant(chain, query, fb, doc)
+            ]
+
+            if relevant_feedback:
+                avg_relevance = sum(fb.relevance for fb in relevant_feedback) / len(relevant_feedback)
+                doc.metadata['relevance_score'] = doc.metadata.get('relevance_score', 1) * (avg_relevance / 3)
+
+        return sorted(docs, key=lambda x: x.metadata.get('relevance_score', 1), reverse=True)
+
+    def _is_relevant(self, chain, query: str, feedback: Feedback, doc: Document) -> bool:
+        """Check if feedback is relevant to the current query and document"""
+        input_data = {
+            "query": query,
+            "feedback_query": feedback.query,
+            "doc_content": doc.page_content[:1000],
+            "feedback_response": feedback.response
+        }
+        result = chain.invoke(input_data).answer
+        return result.lower() == 'yes'
+
+
+## --------------------------
+## Main RAG System
+## --------------------------
+
+class RetrievalAugmentedGeneration:
+    """Main RAG system with feedback integration"""
+    
+    def __init__(self, document_path: str):
+        self.document_path = document_path
+        self.feedback_manager = FeedbackManager()
+        self.relevance_scorer = RelevanceScorer()
+        
+        # Initialize components
+        self._initialize_components()
+
+    def _initialize_components(self) -> None:
+        """Initialize all RAG components"""
+        try:
+            # Load and process document
+            self.content = DocumentProcessor.load_pdf(self.document_path)
+            self.vectorstore = DocumentProcessor.create_vectorstore(self.content)
             self.retriever = self.vectorstore.as_retriever()
+            
+            # Initialize LLM and QA chain
             self.llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=4000)
             self.qa_chain = RetrievalQA.from_chain_type(self.llm, retriever=self.retriever)
         except Exception as e:
-            print(f"Error initializing RAG system: {e}")
-            raise
+            raise RuntimeError(f"Failed to initialize RAG system: {str(e)}")
 
-    def run(self, query: str, relevance: int, quality: int):
-        response = self.qa_chain.invoke({"query": query})["result"]
-        feedback = get_user_feedback(query, response, relevance, quality)
-        store_feedback(feedback)
+    def query(self, question: str, relevance: int = 5, quality: int = 5) -> str:
+        """
+        Execute a query against the RAG system and store feedback
+        
+        Args:
+            question: The question to ask
+            relevance: Relevance score for feedback (1-5)
+            quality: Quality score for feedback (1-5)
+            
+        Returns:
+            The generated answer
+        """
+        try:
+            # Execute query
+            response = self.qa_chain.invoke({"query": question})["result"]
+            
+            # Store feedback
+            feedback = Feedback(
+                query=question,
+                response=response,
+                relevance=relevance,
+                quality=quality
+            )
+            self.feedback_manager.save_feedback(feedback)
+            
+            # Adjust relevance scores based on feedback
+            docs = self.retriever.invoke(question)
+            adjusted_docs = self.relevance_scorer.adjust_scores(
+                question, 
+                docs, 
+                self.feedback_manager.load_feedback()
+            )
+            
+            # Update retriever parameters
+            self.retriever.search_kwargs.update({
+                'k': len(adjusted_docs),
+                'docs': adjusted_docs
+            })
+            
+            return response
+        
+        except Exception as e:
+            raise RuntimeError(f"Query execution failed: {str(e)}")
 
-        docs = self.retriever.invoke(query)
-        adjusted_docs = adjust_relevance_scores(query, docs, load_feedback_data())
-        self.retriever.search_kwargs['k'] = len(adjusted_docs)
-        self.retriever.search_kwargs['docs'] = adjusted_docs
+    def fine_tune(self) -> None:
+        """Fine-tune the vectorstore based on accumulated feedback"""
+        try:
+            feedback_data = self.feedback_manager.load_feedback()
+            good_responses = [
+                fb for fb in feedback_data 
+                if fb.relevance >= 4 and fb.quality >= 4
+            ]
+            
+            if good_responses:
+                additional_texts = " ".join(
+                    f"{fb.query} {fb.response}" for fb in good_responses
+                )
+                all_texts = self.content + additional_texts
+                self.vectorstore = DocumentProcessor.create_vectorstore(all_texts)
+                self.retriever = self.vectorstore.as_retriever()
+                
+        except Exception as e:
+            raise RuntimeError(f"Fine-tuning failed: {str(e)}")
 
-        return response
 
+## --------------------------
+## CLI Interface
+## --------------------------
 
-# Argument parsing
-def parse_args():
-    import argparse
-    parser = argparse.ArgumentParser(description="Run the RAG system with feedback integration.")
-    parser.add_argument('--path', type=str, default="data/Understanding_Climate_Change.pdf",
-                        help="Path to the document.")
-    parser.add_argument('--query', type=str, default='What is the greenhouse effect?',
-                        help="Query to ask the RAG system.")
-    parser.add_argument('--relevance', type=int, default=5, help="Relevance score for the feedback.")
-    parser.add_argument('--quality', type=int, default=5, help="Quality score for the feedback.")
-    return parser.parse_args()
+class RAGCLI:
+    """Command line interface for the RAG system"""
+    
+    @staticmethod
+    def parse_args() -> argparse.Namespace:
+        parser = argparse.ArgumentParser(
+            description="Run the RAG system with feedback integration."
+        )
+        parser.add_argument(
+            '--path', 
+            type=str, 
+            default="data/Understanding_Climate_Change.pdf",
+            help="Path to the document."
+        )
+        parser.add_argument(
+            '--query', 
+            type=str, 
+            default='What is the greenhouse effect?',
+            help="Query to ask the RAG system."
+        )
+        parser.add_argument(
+            '--relevance', 
+            type=int, 
+            default=5, 
+            help="Relevance score for the feedback (1-5)."
+        )
+        parser.add_argument(
+            '--quality', 
+            type=int, 
+            default=5, 
+            help="Quality score for the feedback (1-5)."
+        )
+        return parser.parse_args()
+
+    @staticmethod
+    def run() -> None:
+        """Run the RAG system from command line"""
+        args = RAGCLI.parse_args()
+        
+        try:
+            rag = RetrievalAugmentedGeneration(args.path)
+            result = rag.query(args.query, args.relevance, args.quality)
+            print(f"Response: {result}")
+            
+            # Optional: Fine-tune after query
+            rag.fine_tune()
+            
+        except Exception as e:
+            print(f"Error: {str(e)}")
+            sys.exit(1)
 
 
 if __name__ == "__main__":
-    args = parse_args()
-    try:
-        rag = RetrievalAugmentedGeneration(args.path)
-        result = rag.run(args.query, args.relevance, args.quality)
-        print(f"Response: {result}")
-
-        # Fine-tune the vectorstore periodically
-        new_vectorstore = fine_tune_index(load_feedback_data(), rag.content)
-        rag.retriever = new_vectorstore.as_retriever()
-    except Exception as e:
-        print(f"Error running RAG system: {e}")
+    RAGCLI.run()
