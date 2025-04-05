@@ -182,3 +182,4 @@ zipp==3.19.2
 chroma
 matplotlib
 pypdf2
+duckduckgo-search
